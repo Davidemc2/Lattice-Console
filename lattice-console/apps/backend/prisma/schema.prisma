@@ -1,0 +1,157 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  passwordHash  String
+  name          String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  workloads     Workload[]
+  sessions      Session[]
+}
+
+model Session {
+  id            String   @id @default(cuid())
+  userId        String
+  token         String   @unique
+  refreshToken  String   @unique
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([token])
+}
+
+model Workload {
+  id            String          @id @default(cuid())
+  name          String
+  type          WorkloadType
+  status        WorkloadStatus
+  userId        String
+  image         String
+  cpu           Float           @default(1)
+  memory        Int             @default(512)
+  storage       Int             @default(10)
+  publicUrl     String?
+  containerId   String?         @unique
+  agentId       String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent         Agent?          @relation(fields: [agentId], references: [id])
+  credentials   Credential[]
+  logs          WorkloadLog[]
+  stats         WorkloadStat[]
+  
+  @@index([userId])
+  @@index([status])
+  @@index([agentId])
+}
+
+model Credential {
+  id          String   @id @default(cuid())
+  workloadId  String
+  key         String
+  value       String
+  encrypted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  workload    Workload @relation(fields: [workloadId], references: [id], onDelete: Cascade)
+  
+  @@unique([workloadId, key])
+  @@index([workloadId])
+}
+
+model Agent {
+  id            String        @id @default(cuid())
+  hostname      String
+  platform      String
+  dockerVersion String?
+  status        AgentStatus   @default(OFFLINE)
+  token         String        @unique
+  cpuCores      Int
+  totalMemory   BigInt
+  totalDisk     BigInt
+  lastSeenAt    DateTime      @default(now())
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  workloads     Workload[]
+  heartbeats    AgentHeartbeat[]
+  
+  @@index([status])
+  @@index([token])
+}
+
+model AgentHeartbeat {
+  id              String   @id @default(cuid())
+  agentId         String
+  availableMemory BigInt
+  availableDisk   BigInt
+  timestamp       DateTime @default(now())
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  
+  @@index([agentId, timestamp])
+}
+
+model WorkloadLog {
+  id          String    @id @default(cuid())
+  workloadId  String
+  message     String
+  level       LogLevel?
+  timestamp   DateTime  @default(now())
+  workload    Workload  @relation(fields: [workloadId], references: [id], onDelete: Cascade)
+  
+  @@index([workloadId, timestamp])
+}
+
+model WorkloadStat {
+  id          String   @id @default(cuid())
+  workloadId  String
+  cpu         Float
+  memory      BigInt
+  disk        BigInt
+  networkRx   BigInt
+  networkTx   BigInt
+  timestamp   DateTime @default(now())
+  workload    Workload @relation(fields: [workloadId], references: [id], onDelete: Cascade)
+  
+  @@index([workloadId, timestamp])
+}
+
+enum WorkloadType {
+  POSTGRES
+  MINIO
+  CUSTOM
+}
+
+enum WorkloadStatus {
+  PENDING
+  PROVISIONING
+  RUNNING
+  STOPPING
+  STOPPED
+  ERROR
+}
+
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+  ERROR
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
