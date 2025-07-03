@@ -6,7 +6,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -24,22 +23,29 @@ model User {
 }
 
 model Workload {
-  id        String   @id @default(uuid())
-  name      String
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
-  node      Node?    @relation(fields: [nodeId], references: [id])
-  nodeId    String?
-  status    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String    @id @default(uuid())
+  name         String
+  type         String    // 'postgres', 'minio', 'custom'
+  status       String    // 'deploying', 'running', 'stopped', 'error'
+  user         User      @relation(fields: [userId], references: [id])
+  userId       String
+  node         Node?     @relation(fields: [nodeId], references: [id])
+  nodeId       String?
+  containerId  String?   // Docker container ID
+  port         Int?      // Host port
+  publicUrl    String?   // Ngrok/tunnel URL
+  credentials  Json?     // Encrypted credentials
+  config       Json?     // Container configuration
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model Node {
-  id        String   @id @default(uuid())
+  id        String     @id @default(uuid())
   name      String
-  address   String   @unique
+  address   String     @unique
+  status    String     @default("active") // 'active', 'inactive', 'error'
   workloads Workload[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }

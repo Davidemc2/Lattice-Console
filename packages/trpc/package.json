@@ -1,0 +1,23 @@
+{
+  "name": "@lattice/trpc",
+  "version": "0.1.0",
+  "description": "Shared tRPC types and utilities for Lattice Console",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": ["trpc", "types"],
+  "author": "Lattice Console Team",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@trpc/server": "^11.4.3",
+    "zod": "^3.25.71"
+  }
+}

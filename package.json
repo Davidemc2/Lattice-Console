@@ -1,13 +1,27 @@
 {
-  "name": "Lattice Console",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "lattice-console",
+  "version": "0.1.0",
+  "description": "Decentralized Cloud Platform - MVP 0.1",
+  "private": true,
+  "packageManager": "pnpm@10.12.1",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "pnpm run --parallel dev",
+    "build": "pnpm run --recursive build",
+    "test": "pnpm run --recursive test",
+    "lint": "pnpm run --recursive lint",
+    "clean": "pnpm run --recursive clean"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.12.1"
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.8.3",
+    "prettier": "^3.0.0",
+    "eslint": "^8.0.0"
+  },
+  "keywords": ["cloud", "decentralized", "docker", "containers"],
+  "author": "Lattice Console Team",
+  "license": "MIT"
 }
