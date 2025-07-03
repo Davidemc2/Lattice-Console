@@ -1,32 +1,38 @@
 {
   "name": "@lattice-console/utils",
   "version": "0.1.0",
+  "private": true,
   "description": "Shared utilities for Lattice Console",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "clean": "rm -rf dist",
-    "test": "jest",
+    "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "type-check": "tsc --noEmit"
+    "test": "vitest"
   },
   "keywords": ["lattice", "utils"],
   "author": "Lattice Console Team",
   "license": "MIT",
   "dependencies": {
-    "bcrypt": "^5.1.1",
-    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "winston": "^3.11.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/bcrypt": "^5.0.2",
-    "@types/jsonwebtoken": "^9.0.5",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.11.0",
-    "jest": "^29.7.0",
-    "@types/jest": "^29.5.11",
-    "ts-jest": "^29.1.1",
-    "typescript": "^5.3.3"
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

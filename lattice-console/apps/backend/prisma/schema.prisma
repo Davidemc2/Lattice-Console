@@ -11,147 +11,320 @@ datasource db {
 }
 
 model User {
-  id            String     @id @default(cuid())
-  email         String     @unique
-  passwordHash  String
+  id            String    @id @default(cuid())
+  email         String    @unique
   name          String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  passwordHash  String
+  role          Role      @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
   workloads     Workload[]
-  sessions      Session[]
-}
-
-model Session {
-  id            String   @id @default(cuid())
-  userId        String
-  token         String   @unique
-  refreshToken  String   @unique
-  expiresAt     DateTime
-  createdAt     DateTime @default(now())
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentPools    AgentPool[]
+  approvals     AgentApproval[]
   
-  @@index([userId])
-  @@index([token])
-}
-
-model Workload {
-  id            String          @id @default(cuid())
-  name          String
-  type          WorkloadType
-  status        WorkloadStatus
-  userId        String
-  image         String
-  cpu           Float           @default(1)
-  memory        Int             @default(512)
-  storage       Int             @default(10)
-  publicUrl     String?
-  containerId   String?         @unique
-  agentId       String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  agent         Agent?          @relation(fields: [agentId], references: [id])
-  credentials   Credential[]
-  logs          WorkloadLog[]
-  stats         WorkloadStat[]
-  
-  @@index([userId])
-  @@index([status])
-  @@index([agentId])
-}
-
-model Credential {
-  id          String   @id @default(cuid())
-  workloadId  String
-  key         String
-  value       String
-  encrypted   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  workload    Workload @relation(fields: [workloadId], references: [id], onDelete: Cascade)
-  
-  @@unique([workloadId, key])
-  @@index([workloadId])
+  @@map("users")
 }
 
 model Agent {
-  id            String        @id @default(cuid())
-  hostname      String
-  platform      String
-  dockerVersion String?
-  status        AgentStatus   @default(OFFLINE)
-  token         String        @unique
-  cpuCores      Int
-  totalMemory   BigInt
-  totalDisk     BigInt
-  lastSeenAt    DateTime      @default(now())
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  workloads     Workload[]
-  heartbeats    AgentHeartbeat[]
+  id              String     @id @default(cuid())
+  hostname        String
+  platform        String     // windows, macos, linux
+  dockerVersion   String
+  agentVersion    String     @default("1.0.0")
+  tokenHash       String     // Hashed authentication token
+  status          AgentStatus @default(PENDING_APPROVAL)
+  ranking         Int        @default(0) // 0-1000 performance ranking
+  healthScore     Int?       // 0-100 current health score
   
-  @@index([status])
-  @@index([token])
+  // Capabilities and resources
+  capabilities    Json       // CPU, memory, disk, GPUs, runtimes, etc.
+  resources       Json?      // Current resource utilization
+  metadata        Json       @default("{}")
+  
+  // Pool assignment
+  poolId          String?
+  pool            AgentPool? @relation(fields: [poolId], references: [id])
+  
+  // Timestamps
+  registeredAt    DateTime   @default(now())
+  lastSeenAt      DateTime?
+  approvedAt      DateTime?
+  
+  // Relations
+  heartbeats      AgentHeartbeat[]
+  workloads       Workload[]
+  alerts          AgentAlert[]
+  approval        AgentApproval?
+  
+  @@map("agents")
+}
+
+model AgentPool {
+  id              String    @id @default(cuid())
+  name            String    @unique
+  description     String?
+  criteria        Json      // Matching criteria for agents
+  priority        Int       @default(5) // 1-10, higher = more preferred
+  maxAgents       Int?      // Optional agent limit
+  healthThreshold Int       @default(80) // Minimum health score
+  
+  // Management
+  createdBy       String
+  createdByUser   User      @relation(fields: [createdBy], references: [id])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  agents          Agent[]
+  
+  @@map("agent_pools")
 }
 
 model AgentHeartbeat {
-  id              String   @id @default(cuid())
+  id              String        @id @default(cuid())
   agentId         String
-  availableMemory BigInt
-  availableDisk   BigInt
-  timestamp       DateTime @default(now())
-  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent           Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
   
+  status          HealthStatus  @default(HEALTHY)
+  healthScore     Int           // 0-100
+  
+  // Resource utilization
+  resources       Json          // CPU, memory, disk, network usage
+  
+  // Performance metrics
+  metrics         Json          @default("{}") // Completed jobs, uptime, etc.
+  
+  // Running workloads
+  workloads       Json          @default("[]") // Array of active workload info
+  
+  timestamp       DateTime      @default(now())
+  
+  @@map("agent_heartbeats")
   @@index([agentId, timestamp])
 }
 
-model WorkloadLog {
-  id          String    @id @default(cuid())
-  workloadId  String
-  message     String
-  level       LogLevel?
-  timestamp   DateTime  @default(now())
-  workload    Workload  @relation(fields: [workloadId], references: [id], onDelete: Cascade)
+model AgentApproval {
+  id              String         @id @default(cuid())
+  agentId         String         @unique
+  agent           Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
   
+  status          ApprovalStatus @default(PENDING)
+  
+  submittedAt     DateTime       @default(now())
+  submittedBy     String
+  
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  reviewedByUser  User?          @relation(fields: [reviewedBy], references: [id])
+  reason          String?
+  
+  @@map("agent_approvals")
+}
+
+model AgentAlert {
+  id              String         @id @default(cuid())
+  agentId         String
+  agent           Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  
+  type            String         // alert type (cpu_high, memory_high, etc.)
+  severity        AlertSeverity  @default(LOW)
+  message         String
+  metadata        Json           @default("{}")
+  
+  acknowledged    Boolean        @default(false)
+  acknowledgedAt  DateTime?
+  acknowledgedBy  String?
+  
+  timestamp       DateTime       @default(now())
+  
+  @@map("agent_alerts")
+  @@index([agentId, timestamp])
+}
+
+model Workload {
+  id              String          @id @default(cuid())
+  name            String
+  type            WorkloadType
+  status          WorkloadStatus  @default(PENDING)
+  
+  // Configuration
+  image           String?         // Docker image
+  config          Json            // Workload configuration (env vars, volumes, etc.)
+  requirements    Json            // Resource requirements
+  
+  // Assignment
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+  agentId         String?
+  agent           Agent?          @relation(fields: [agentId], references: [id])
+  
+  // Execution details
+  containerId     String?         // Docker container ID
+  exposedPorts    Json            @default("[]") // Exposed port mappings
+  tunnelUrl       String?         // ngrok/tunnel URL
+  
+  // Timestamps
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  startedAt       DateTime?
+  stoppedAt       DateTime?
+  
+  // Relations
+  logs            WorkloadLog[]
+  events          WorkloadEvent[]
+  
+  @@map("workloads")
+}
+
+model WorkloadLog {
+  id              String    @id @default(cuid())
+  workloadId      String
+  workload        Workload  @relation(fields: [workloadId], references: [id], onDelete: Cascade)
+  
+  level           LogLevel  @default(INFO)
+  message         String
+  source          String?   // stdout, stderr, system
+  timestamp       DateTime  @default(now())
+  
+  @@map("workload_logs")
   @@index([workloadId, timestamp])
 }
 
-model WorkloadStat {
-  id          String   @id @default(cuid())
-  workloadId  String
-  cpu         Float
-  memory      BigInt
-  disk        BigInt
-  networkRx   BigInt
-  networkTx   BigInt
-  timestamp   DateTime @default(now())
-  workload    Workload @relation(fields: [workloadId], references: [id], onDelete: Cascade)
+model WorkloadEvent {
+  id              String    @id @default(cuid())
+  workloadId      String
+  workload        Workload  @relation(fields: [workloadId], references: [id], onDelete: Cascade)
   
+  type            String    // started, stopped, failed, etc.
+  message         String
+  metadata        Json      @default("{}")
+  timestamp       DateTime  @default(now())
+  
+  @@map("workload_events")
   @@index([workloadId, timestamp])
+}
+
+model SystemMetric {
+  id              String    @id @default(cuid())
+  
+  // Metric identification
+  name            String    // cpu_usage, memory_usage, etc.
+  source          String    // agent_id or 'system'
+  
+  // Metric data
+  value           Float
+  unit            String?   // %, bytes, count, etc.
+  metadata        Json      @default("{}")
+  
+  timestamp       DateTime  @default(now())
+  
+  @@map("system_metrics")
+  @@index([name, source, timestamp])
+}
+
+model AuditLog {
+  id              String    @id @default(cuid())
+  
+  // Event details
+  action          String    // user_login, agent_approved, workload_created, etc.
+  resource        String?   // Resource type (agent, workload, etc.)
+  resourceId      String?   // Resource ID
+  
+  // Actor
+  userId          String?
+  userEmail       String?
+  agentId         String?
+  
+  // Context
+  ipAddress       String?
+  userAgent       String?
+  metadata        Json      @default("{}")
+  
+  // Result
+  success         Boolean   @default(true)
+  errorMessage    String?
+  
+  timestamp       DateTime  @default(now())
+  
+  @@map("audit_logs")
+  @@index([action, timestamp])
+  @@index([userId, timestamp])
+  @@index([resourceId, timestamp])
+}
+
+// Configuration and feature flags
+model SystemConfig {
+  id              String    @id @default(cuid())
+  key             String    @unique
+  value           Json
+  description     String?
+  
+  updatedAt       DateTime  @updatedAt
+  updatedBy       String?
+  
+  @@map("system_config")
+}
+
+// Enums
+enum Role {
+  USER
+  ADMIN
+  SYSTEM
+}
+
+enum AgentStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  INACTIVE
+  DEGRADED
+  UNHEALTHY
+  REJECTED
+  SUSPENDED
+}
+
+enum HealthStatus {
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }
 
 enum WorkloadType {
   POSTGRES
   MINIO
+  REDIS
   CUSTOM
+  COMPUTE
 }
 
 enum WorkloadStatus {
   PENDING
-  PROVISIONING
+  STARTING
   RUNNING
   STOPPING
   STOPPED
-  ERROR
-}
-
-enum AgentStatus {
-  ONLINE
-  OFFLINE
-  ERROR
+  FAILED
+  COMPLETED
 }
 
 enum LogLevel {
+  DEBUG
   INFO
   WARN
   ERROR
+  FATAL
 }

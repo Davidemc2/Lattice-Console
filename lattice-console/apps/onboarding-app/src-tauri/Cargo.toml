@@ -1,0 +1,30 @@
+[package]
+name = "lattice-console-onboarding"
+version = "0.1.0"
+description = "Lattice Console Onboarding Desktop App"
+authors = ["Lattice Console Contributors"]
+license = "MIT"
+repository = "https://github.com/lattice-console/lattice-console"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+tauri-build = { version = "1.5.1", features = [] }
+
+[dependencies]
+tauri = { version = "1.5.4", features = ["api-all", "shell-execute", "shell-open", "dialog-all", "fs-all", "path-all", "process-all", "notification-all", "updater"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.35", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+num_cpus = "1.16"
+whoami = "1.4"
+
+[features]
+# by default Tauri runs in production mode
+# when `tauri dev` runs it is executed with `cargo run --no-default-features` if `devPath` is an URL
+default = ["custom-protocol"]
+# this feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]

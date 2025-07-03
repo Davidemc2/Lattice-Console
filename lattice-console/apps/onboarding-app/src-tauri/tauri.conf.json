@@ -1,0 +1,124 @@
+{
+  "build": {
+    "beforeDevCommand": "pnpm dev:web",
+    "beforeBuildCommand": "pnpm build:web",
+    "devPath": "http://localhost:5173",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "Lattice Console",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "shell": {
+        "all": false,
+        "execute": true,
+        "sidecar": false,
+        "open": true
+      },
+      "dialog": {
+        "all": false,
+        "ask": true,
+        "confirm": true,
+        "message": true,
+        "open": true,
+        "save": true
+      },
+      "fs": {
+        "all": false,
+        "readFile": true,
+        "writeFile": true,
+        "readDir": true,
+        "copyFile": true,
+        "createDir": true,
+        "removeDir": true,
+        "removeFile": true,
+        "renameFile": true,
+        "exists": true,
+        "scope": ["$HOME/**", "$TEMP/**", "$APPDATA/**", "$LOCALDATA/**"]
+      },
+      "path": {
+        "all": true
+      },
+      "process": {
+        "all": false,
+        "relaunch": true,
+        "exit": true
+      },
+      "notification": {
+        "all": true
+      },
+      "updater": {
+        "active": true
+      },
+      "http": {
+        "all": true,
+        "request": true
+      },
+      "os": {
+        "all": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "category": "DeveloperTool",
+      "copyright": "© 2024 Lattice Console Contributors",
+      "deb": {
+        "depends": ["docker.io"]
+      },
+      "externalBin": [],
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "identifier": "com.lattice-console.onboarding",
+      "longDescription": "One-click setup for joining the Lattice Console decentralized cloud platform. This app will guide you through installing Docker, configuring your machine as an agent node, and connecting to the Lattice network.",
+      "macOS": {
+        "entitlements": null,
+        "exceptionDomain": "",
+        "frameworks": [],
+        "providerShortName": null,
+        "signingIdentity": null
+      },
+      "resources": [],
+      "shortDescription": "Join the decentralized cloud with one click",
+      "targets": "all",
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": ""
+      }
+    },
+    "security": {
+      "csp": null
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://lattice-console-updates.vercel.app/{{target}}/{{current_version}}"
+      ],
+      "dialog": true,
+      "pubkey": "YOUR_PUBLIC_KEY_HERE"
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 800,
+        "resizable": true,
+        "title": "Lattice Console - Join the Decentralized Cloud",
+        "width": 1200,
+        "minHeight": 600,
+        "minWidth": 800,
+        "decorations": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "visible": true
+      }
+    ]
+  }
+}

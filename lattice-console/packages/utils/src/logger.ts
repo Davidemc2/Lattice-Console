@@ -1,108 +1,248 @@
-export enum LogLevel {
-  DEBUG = 'debug',
-  INFO = 'info',
-  WARN = 'warn',
-  ERROR = 'error',
-}
+import winston from 'winston';
 
 export interface LogContext {
+  service?: string;
+  userId?: string;
+  agentId?: string;
+  workloadId?: string;
+  requestId?: string;
   [key: string]: any;
 }
 
-export class Logger {
-  private static logLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || LogLevel.INFO;
-  private static logFormat: string = process.env.LOG_FORMAT || 'json';
+class LoggerClass {
+  private winston: winston.Logger;
 
-  private static shouldLog(level: LogLevel): boolean {
-    const levels = [LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR];
-    const currentLevelIndex = levels.indexOf(this.logLevel);
-    const targetLevelIndex = levels.indexOf(level);
-    return targetLevelIndex >= currentLevelIndex;
-  }
+  constructor() {
+    this.winston = winston.createLogger({
+      level: process.env.LOG_LEVEL || 'info',
+      format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.errors({ stack: true }),
+        winston.format.json(),
+        winston.format.printf(({ timestamp, level, message, service, ...meta }) => {
+          const logObject = {
+            timestamp,
+            level,
+            message,
+            service: service || 'lattice-console',
+            ...meta,
+          };
+          return JSON.stringify(logObject);
+        })
+      ),
+      defaultMeta: {
+        service: 'lattice-console',
+        environment: process.env.NODE_ENV || 'development',
+      },
+      transports: [
+        new winston.transports.Console({
+          format: winston.format.combine(
+            winston.format.colorize(),
+            winston.format.simple()
+          ),
+        }),
+      ],
+    });
 
-  private static formatMessage(
-    level: LogLevel,
-    message: string,
-    context?: LogContext
-  ): string | object {
-    const timestamp = new Date().toISOString();
-    
-    if (this.logFormat === 'json') {
-      return JSON.stringify({
-        timestamp,
-        level,
-        message,
-        ...context,
-      });
+    // Add file transport in production
+    if (process.env.NODE_ENV === 'production') {
+      this.winston.add(
+        new winston.transports.File({
+          filename: 'logs/error.log',
+          level: 'error',
+        })
+      );
+      this.winston.add(
+        new winston.transports.File({
+          filename: 'logs/combined.log',
+        })
+      );
     }
-    
-    // Pretty format for development
-    const contextStr = context ? ` ${JSON.stringify(context)}` : '';
-    return `[${timestamp}] [${level.toUpperCase()}] ${message}${contextStr}`;
   }
 
-  static debug(message: string, context?: LogContext): void {
-    if (this.shouldLog(LogLevel.DEBUG)) {
-      console.log(this.formatMessage(LogLevel.DEBUG, message, context));
-    }
+  /**
+   * Create a child logger with additional context
+   */
+  child(context: LogContext): LoggerInstance {
+    return new LoggerInstance(this.winston.child(context));
   }
 
-  static info(message: string, context?: LogContext): void {
-    if (this.shouldLog(LogLevel.INFO)) {
-      console.log(this.formatMessage(LogLevel.INFO, message, context));
-    }
+  /**
+   * Log an info message
+   */
+  info(message: string, meta?: any, context?: LogContext): void {
+    this.winston.info(message, { ...meta, ...context });
   }
 
-  static warn(message: string, context?: LogContext): void {
-    if (this.shouldLog(LogLevel.WARN)) {
-      console.warn(this.formatMessage(LogLevel.WARN, message, context));
-    }
+  /**
+   * Log a warning message
+   */
+  warn(message: string, meta?: any, context?: LogContext): void {
+    this.winston.warn(message, { ...meta, ...context });
   }
 
-  static error(message: string, error?: Error | unknown, context?: LogContext): void {
-    if (this.shouldLog(LogLevel.ERROR)) {
-      const errorContext: LogContext = { ...context };
-      
-      if (error instanceof Error) {
-        errorContext.error = {
-          message: error.message,
+  /**
+   * Log an error message
+   */
+  error(message: string, error?: Error | any, context?: LogContext): void {
+    const errorInfo = error instanceof Error 
+      ? { 
+          error: error.message, 
           stack: error.stack,
-          name: error.name,
-        };
-      } else if (error) {
-        errorContext.error = String(error);
-      }
-      
-      console.error(this.formatMessage(LogLevel.ERROR, message, errorContext));
+          name: error.name 
+        }
+      : { error };
+    
+    this.winston.error(message, { ...errorInfo, ...context });
+  }
+
+  /**
+   * Log a debug message
+   */
+  debug(message: string, meta?: any, context?: LogContext): void {
+    this.winston.debug(message, { ...meta, ...context });
+  }
+
+  /**
+   * Log a verbose message
+   */
+  verbose(message: string, meta?: any, context?: LogContext): void {
+    this.winston.verbose(message, { ...meta, ...context });
+  }
+
+  /**
+   * Log performance metrics
+   */
+  performance(operation: string, duration: number, context?: LogContext): void {
+    this.winston.info(`Performance: ${operation}`, {
+      operation,
+      duration_ms: duration,
+      type: 'performance',
+      ...context,
+    });
+  }
+
+  /**
+   * Log audit events
+   */
+  audit(action: string, resource?: string, resourceId?: string, context?: LogContext): void {
+    this.winston.info(`Audit: ${action}`, {
+      action,
+      resource,
+      resourceId,
+      type: 'audit',
+      ...context,
+    });
+  }
+
+  /**
+   * Log security events
+   */
+  security(event: string, severity: 'low' | 'medium' | 'high' | 'critical', context?: LogContext): void {
+    this.winston.warn(`Security: ${event}`, {
+      event,
+      severity,
+      type: 'security',
+      ...context,
+    });
+  }
+
+  /**
+   * Time a function execution
+   */
+  async time<T>(operation: string, fn: () => Promise<T>, context?: LogContext): Promise<T> {
+    const start = Date.now();
+    this.debug(`Starting: ${operation}`, context);
+    
+    try {
+      const result = await fn();
+      const duration = Date.now() - start;
+      this.performance(operation, duration, context);
+      return result;
+    } catch (error) {
+      const duration = Date.now() - start;
+      this.error(`Failed: ${operation}`, error, { ...context, duration_ms: duration });
+      throw error;
+    }
+  }
+}
+
+class LoggerInstance {
+  constructor(private winston: winston.Logger) {}
+
+  info(message: string, meta?: any): void {
+    this.winston.info(message, meta);
+  }
+
+  warn(message: string, meta?: any): void {
+    this.winston.warn(message, meta);
+  }
+
+  error(message: string, error?: Error | any): void {
+    const errorInfo = error instanceof Error 
+      ? { 
+          error: error.message, 
+          stack: error.stack,
+          name: error.name 
+        }
+      : { error };
+    
+    this.winston.error(message, errorInfo);
+  }
+
+  debug(message: string, meta?: any): void {
+    this.winston.debug(message, meta);
+  }
+
+  verbose(message: string, meta?: any): void {
+    this.winston.verbose(message, meta);
+  }
+
+  performance(operation: string, duration: number): void {
+    this.winston.info(`Performance: ${operation}`, {
+      operation,
+      duration_ms: duration,
+      type: 'performance',
+    });
+  }
+
+  audit(action: string, resource?: string, resourceId?: string): void {
+    this.winston.info(`Audit: ${action}`, {
+      action,
+      resource,
+      resourceId,
+      type: 'audit',
+    });
+  }
+
+  security(event: string, severity: 'low' | 'medium' | 'high' | 'critical'): void {
+    this.winston.warn(`Security: ${event}`, {
+      event,
+      severity,
+      type: 'security',
+    });
+  }
+
+  async time<T>(operation: string, fn: () => Promise<T>): Promise<T> {
+    const start = Date.now();
+    this.debug(`Starting: ${operation}`);
+    
+    try {
+      const result = await fn();
+      const duration = Date.now() - start;
+      this.performance(operation, duration);
+      return result;
+    } catch (error) {
+      const duration = Date.now() - start;
+      this.error(`Failed: ${operation}`, { error, duration_ms: duration });
+      throw error;
     }
   }
 
-  static child(defaultContext: LogContext): LoggerInstance {
-    return new LoggerInstance(defaultContext);
+  child(context: LogContext): LoggerInstance {
+    return new LoggerInstance(this.winston.child(context));
   }
 }
 
-// Logger instance with default context
-export class LoggerInstance {
-  constructor(private defaultContext: LogContext) {}
-
-  debug(message: string, context?: LogContext): void {
-    Logger.debug(message, { ...this.defaultContext, ...context });
-  }
-
-  info(message: string, context?: LogContext): void {
-    Logger.info(message, { ...this.defaultContext, ...context });
-  }
-
-  warn(message: string, context?: LogContext): void {
-    Logger.warn(message, { ...this.defaultContext, ...context });
-  }
-
-  error(message: string, error?: Error | unknown, context?: LogContext): void {
-    Logger.error(message, error, { ...this.defaultContext, ...context });
-  }
-
-  child(additionalContext: LogContext): LoggerInstance {
-    return new LoggerInstance({ ...this.defaultContext, ...additionalContext });
-  }
-}
+export const Logger = new LoggerClass();
+export type { LoggerInstance };
