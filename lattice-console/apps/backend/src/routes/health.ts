@@ -4,7 +4,7 @@ import { Logger } from '@lattice-console/utils';
 
 const logger = Logger.child({ module: 'health' });
 
-export const healthRouter = Router();
+export const healthRouter: Router = Router();
 
 healthRouter.get('/', async (req, res) => {
   const health = {
