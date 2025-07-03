@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # Postgres database for development
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: lattice
+      POSTGRES_PASSWORD: lattice_dev_password
+      POSTGRES_DB: lattice_console
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lattice"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Backend API server
+  backend:
+    build:
+      context: .
+      dockerfile: ./infra/docker/backend.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://lattice:lattice_dev_password@postgres:5432/lattice_console?schema=public
+      JWT_SECRET: dev_jwt_secret_change_in_production
+      AGENT_SECRET: dev_agent_secret_change_in_production
+      NODE_ENV: development
+      BACKEND_PORT: 3001
+      CORS_ORIGIN: http://localhost:3000
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./apps/backend:/app/apps/backend
+      - ./packages:/app/packages
+    command: pnpm --filter @lattice-console/backend dev
+
+  # Frontend Next.js app
+  frontend:
+    build:
+      context: .
+      dockerfile: ./infra/docker/frontend.Dockerfile
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/frontend:/app/apps/frontend
+      - ./packages:/app/packages
+    command: pnpm --filter @lattice-console/frontend dev
+
+  # Agent (optional for local dev)
+  agent:
+    build:
+      context: .
+      dockerfile: ./infra/docker/agent.Dockerfile
+    depends_on:
+      - backend
+    environment:
+      BACKEND_URL: http://backend:3001
+      AGENT_SECRET: dev_agent_secret_change_in_production
+      NODE_ENV: development
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./apps/agent:/app/apps/agent
+      - ./packages:/app/packages
+    command: pnpm --filter @lattice-console/agent dev
+
+volumes:
+  postgres_data:
