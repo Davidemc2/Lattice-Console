@@ -136,7 +136,7 @@ export class DockerService {
         Logger.info(`Pulling image: ${image}`);
         const stream = await this.docker.pull(image);
         await this.streamToPromise(stream);
-      } catch (error) {
+    } catch (error) {
         Logger.warn(`Failed to pull image ${image}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
@@ -179,7 +179,7 @@ export class DockerService {
     // Create volume for data persistence
     await this.createVolume(dataVolume);
 
-    const container = await this.docker.createContainer({
+      const container = await this.docker.createContainer({
       name: containerName,
       Image: `postgres:${config.version}`,
       Env: [
@@ -212,7 +212,7 @@ export class DockerService {
           lattice: {},
         },
       },
-      Labels: {
+        Labels: {
         'lattice.workload.id': config.workloadId,
         'lattice.service.type': 'postgresql',
         'lattice.version': config.version,
@@ -255,8 +255,8 @@ export class DockerService {
         },
         Memory: config.resources.memory * 1024 * 1024,
         CpuShares: Math.floor(config.resources.cpu * 1024),
-        RestartPolicy: {
-          Name: 'unless-stopped',
+          RestartPolicy: {
+            Name: 'unless-stopped',
         },
         Mounts: [
           {
@@ -275,10 +275,10 @@ export class DockerService {
         'lattice.workload.id': config.workloadId,
         'lattice.service.type': 'redis',
         'lattice.version': config.version,
-      },
-    });
+        },
+      });
 
-    await container.start();
+      await container.start();
     await this.waitForRedis(container, config.password);
 
     this.containers.set(config.workloadId, container);
@@ -469,8 +469,8 @@ export class DockerService {
   async stopContainer(containerId: string): Promise<void> {
     Logger.info(`Stopping container ${containerId}`);
     
-    const container = this.docker.getContainer(containerId);
-    await container.stop();
+      const container = this.docker.getContainer(containerId);
+      await container.stop();
     
     Logger.info(`Container ${containerId} stopped successfully`);
   }
@@ -486,7 +486,7 @@ export class DockerService {
       // Container might already be stopped
     }
     
-    await container.remove({ force: true });
+      await container.remove({ force: true });
     
     // Remove from tracking
     for (const [workloadId, trackedContainer] of this.containers.entries()) {
@@ -711,7 +711,7 @@ export class DockerService {
       try {
         await container.stop({ t: 10 }); // 10 second grace period
         Logger.info(`Stopped container for workload ${workloadId}`);
-      } catch (error) {
+    } catch (error) {
         Logger.error(`Failed to stop container for workload ${workloadId}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
