@@ -11,7 +11,7 @@ export const authRouter = createTRPCRouter({
       email: z.string(),
       token: z.string(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -26,7 +26,7 @@ export const authRouter = createTRPCRouter({
       email: z.string(),
       token: z.string(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -38,7 +38,7 @@ export const authRouter = createTRPCRouter({
     .output(z.object({
       success: z.boolean(),
     }))
-    .mutation(async ({ ctx }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -70,7 +70,7 @@ export const authRouter = createTRPCRouter({
       token: z.string(),
       refreshToken: z.string(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',

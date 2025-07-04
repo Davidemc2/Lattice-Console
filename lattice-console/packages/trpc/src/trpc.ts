@@ -56,7 +56,7 @@ export const protectedProcedure = t.procedure.use(enforceUserIsAuthed);
 /**
  * Middleware for rate limiting
  */
-export const rateLimitMiddleware = t.middleware(async ({ ctx, next, path, type }) => {
+export const rateLimitMiddleware = t.middleware(async ({ next }) => {
   // Rate limiting logic would go here
   // For now, just pass through
   return next();

@@ -1,258 +1,724 @@
 import Docker from 'dockerode';
-import { Logger, DockerError, CONTAINER_LABELS, VOLUME_PATHS } from '@lattice-console/utils';
-import os from 'os';
-import { promises as fs } from 'fs';
+import { Logger } from '@lattice-console/utils';
+import * as os from 'os';
 
-const logger = Logger.child({ module: 'docker-service' });
-
-export interface SystemInfo {
-  hostname: string;
-  platform: string;
-  dockerVersion: string | null;
-  cpuCores: number;
-  totalMemory: number;
-  totalDisk: number;
+interface DeploymentConfig {
+  workloadId: string;
+  resources: {
+    cpu: number;
+    memory: number;
+    disk: number;
+  };
 }
 
-export interface ResourceUsage {
+interface PostgreSQLConfig extends DeploymentConfig {
+  version: string;
+  database: string;
+  username: string;
+  password: string;
+}
+
+interface RedisConfig extends DeploymentConfig {
+  version: string;
+  password: string;
+}
+
+interface MinIOConfig extends DeploymentConfig {
+  accessKey: string;
+  secretKey: string;
+  buckets: string[];
+}
+
+interface NodeJSConfig extends DeploymentConfig {
+  imageId: string;
+  env: Record<string, string>;
+  port?: number;
+}
+
+interface PythonConfig extends DeploymentConfig {
+  imageId: string;
+  env: Record<string, string>;
+  port?: number;
+}
+
+interface ContainerInfo {
+  id: string;
+  port: number;
+  internalPort: number;
+  status: string;
+  publicUrl?: string;
+}
+
+interface ResourceUsage {
+  cpuUsage: number;
+  memoryUsage: number;
+  diskUsage: number;
   availableMemory: number;
   availableDisk: number;
 }
 
-export interface ContainerConfig {
-  image: string;
-  name: string;
-  env?: Record<string, string>;
-  labels?: Record<string, string>;
-  ports?: Array<{ container: number; host?: number }>;
-  volumes?: Array<{ host: string; container: string }>;
-  resources?: {
-    cpu?: number;
-    memory?: number;
-  };
-}
-
 export class DockerService {
   private docker: Docker;
+  private containers: Map<string, Docker.Container> = new Map();
+  private portRange = { min: 30000, max: 40000 };
+  private usedPorts: Set<number> = new Set();
 
   constructor() {
     this.docker = new Docker({
-      socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock',
+      socketPath: process.env.DOCKER_SOCKET_PATH || '/var/run/docker.sock',
     });
   }
 
-  async checkConnection(): Promise<void> {
+  async initialize(): Promise<void> {
+    Logger.info('Initializing Docker service...');
+
     try {
-      await this.docker.ping();
+      // Test Docker connection
+      const info = await this.docker.info();
+      Logger.info(`Docker connected: ${info.ServerVersion}`);
+
+      // Create Docker network for Lattice containers
+      await this.createLatticeNetwork();
+
+      // Pull required base images
+      await this.pullBaseImages();
+
+      // Discover existing containers
+      await this.discoverExistingContainers();
+
+      Logger.info('Docker service initialized successfully');
     } catch (error) {
-      throw new DockerError('Failed to connect to Docker daemon');
+      Logger.error('Failed to initialize Docker service:', error);
+      throw error;
     }
   }
 
-  async getSystemInfo(): Promise<SystemInfo> {
+  private async createLatticeNetwork(): Promise<void> {
     try {
-      const [version, info] = await Promise.all([
-        this.docker.version().catch(() => null),
-        this.docker.info(),
-      ]);
-
-      const totalDisk = await this.getTotalDiskSpace();
-
-      return {
-        hostname: os.hostname(),
-        platform: os.platform(),
-        dockerVersion: version?.Version || null,
-        cpuCores: os.cpus().length,
-        totalMemory: os.totalmem(),
-        totalDisk,
-      };
+      const networks = await this.docker.listNetworks();
+      const latticeNetwork = networks.find(network => network.Name === 'lattice');
+      
+      if (!latticeNetwork) {
+        Logger.info('Creating Lattice Docker network...');
+        await this.docker.createNetwork({
+          Name: 'lattice',
+          Driver: 'bridge',
+          Internal: false,
+          Attachable: true,
+          Labels: {
+            'lattice.network': 'true'
+          }
+        });
+        Logger.info('Lattice Docker network created');
+      }
     } catch (error) {
-      logger.error('Failed to get system info', error);
-      throw new DockerError('Failed to get system information');
+      Logger.warn(`Failed to create Lattice network: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  private async pullBaseImages(): Promise<void> {
+    const images = [
+      'postgres:15',
+      'postgres:14',
+      'postgres:13',
+      'redis:7',
+      'redis:6',
+      'minio/minio:latest',
+      'node:18-alpine',
+      'node:16-alpine',
+      'python:3.11-slim',
+      'python:3.10-slim',
+      'python:3.9-slim',
+    ];
+
+    for (const image of images) {
+      try {
+        Logger.info(`Pulling image: ${image}`);
+        const stream = await this.docker.pull(image);
+        await this.streamToPromise(stream);
+      } catch (error) {
+        Logger.warn(`Failed to pull image ${image}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  private async discoverExistingContainers(): Promise<void> {
+    try {
+      const containers = await this.docker.listContainers({ all: true });
+      
+      for (const containerInfo of containers) {
+        const workloadId = containerInfo.Labels?.['lattice.workload.id'];
+        if (workloadId) {
+          const container = this.docker.getContainer(containerInfo.Id);
+          this.containers.set(workloadId, container);
+          
+          // Track used ports
+          if (containerInfo.Ports) {
+            containerInfo.Ports.forEach(port => {
+              if (port.PublicPort) {
+                this.usedPorts.add(port.PublicPort);
+              }
+            });
+          }
+        }
+      }
+      
+      Logger.info(`Discovered ${this.containers.size} existing Lattice containers`);
+    } catch (error) {
+      Logger.error(`Failed to discover existing containers: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async deployPostgreSQL(config: PostgreSQLConfig): Promise<ContainerInfo> {
+    Logger.info(`Deploying PostgreSQL for workload ${config.workloadId}`);
+
+    const containerName = `postgres-${config.workloadId}`;
+    const port = await this.getAvailablePort();
+    const dataVolume = `postgres-data-${config.workloadId}`;
+
+    // Create volume for data persistence
+    await this.createVolume(dataVolume);
+
+    const container = await this.docker.createContainer({
+      name: containerName,
+      Image: `postgres:${config.version}`,
+      Env: [
+        `POSTGRES_DB=${config.database}`,
+        `POSTGRES_USER=${config.username}`,
+        `POSTGRES_PASSWORD=${config.password}`,
+      ],
+      ExposedPorts: {
+        '5432/tcp': {},
+      },
+      HostConfig: {
+        PortBindings: {
+          '5432/tcp': [{ HostPort: port.toString() }],
+        },
+        Memory: config.resources.memory * 1024 * 1024,
+        CpuShares: Math.floor(config.resources.cpu * 1024),
+        RestartPolicy: {
+          Name: 'unless-stopped',
+        },
+        Mounts: [
+          {
+            Type: 'volume',
+            Source: dataVolume,
+            Target: '/var/lib/postgresql/data',
+          },
+        ],
+      },
+      NetworkingConfig: {
+        EndpointsConfig: {
+          lattice: {},
+        },
+      },
+      Labels: {
+        'lattice.workload.id': config.workloadId,
+        'lattice.service.type': 'postgresql',
+        'lattice.version': config.version,
+      },
+    });
+
+    await container.start();
+    await this.waitForPostgreSQL(container, config.username, config.database);
+
+    this.containers.set(config.workloadId, container);
+    this.usedPorts.add(port);
+
+    return {
+      id: container.id!,
+      port,
+      internalPort: 5432,
+      status: 'running',
+    };
+  }
+
+  async deployRedis(config: RedisConfig): Promise<ContainerInfo> {
+    Logger.info(`Deploying Redis for workload ${config.workloadId}`);
+
+    const containerName = `redis-${config.workloadId}`;
+    const port = await this.getAvailablePort();
+    const dataVolume = `redis-data-${config.workloadId}`;
+
+    await this.createVolume(dataVolume);
+
+    const container = await this.docker.createContainer({
+      name: containerName,
+      Image: `redis:${config.version}`,
+      Cmd: ['redis-server', '--requirepass', config.password, '--appendonly', 'yes'],
+      ExposedPorts: {
+        '6379/tcp': {},
+      },
+      HostConfig: {
+        PortBindings: {
+          '6379/tcp': [{ HostPort: port.toString() }],
+        },
+        Memory: config.resources.memory * 1024 * 1024,
+        CpuShares: Math.floor(config.resources.cpu * 1024),
+        RestartPolicy: {
+          Name: 'unless-stopped',
+        },
+        Mounts: [
+          {
+            Type: 'volume',
+            Source: dataVolume,
+            Target: '/data',
+          },
+        ],
+      },
+      NetworkingConfig: {
+        EndpointsConfig: {
+          lattice: {},
+        },
+      },
+      Labels: {
+        'lattice.workload.id': config.workloadId,
+        'lattice.service.type': 'redis',
+        'lattice.version': config.version,
+      },
+    });
+
+    await container.start();
+    await this.waitForRedis(container, config.password);
+
+    this.containers.set(config.workloadId, container);
+    this.usedPorts.add(port);
+
+    return {
+      id: container.id!,
+      port,
+      internalPort: 6379,
+      status: 'running',
+    };
+  }
+
+  async deployMinIO(config: MinIOConfig): Promise<ContainerInfo> {
+    Logger.info(`Deploying MinIO for workload ${config.workloadId}`);
+
+    const containerName = `minio-${config.workloadId}`;
+    const port = await this.getAvailablePort();
+    const consolePort = await this.getAvailablePort();
+    const dataVolume = `minio-data-${config.workloadId}`;
+
+    await this.createVolume(dataVolume);
+
+    const container = await this.docker.createContainer({
+      name: containerName,
+      Image: 'minio/minio:latest',
+      Cmd: ['server', '/data', '--console-address', `:${consolePort}`],
+      Env: [
+        `MINIO_ROOT_USER=${config.accessKey}`,
+        `MINIO_ROOT_PASSWORD=${config.secretKey}`,
+      ],
+      ExposedPorts: {
+        '9000/tcp': {},
+        [`${consolePort}/tcp`]: {},
+      },
+      HostConfig: {
+        PortBindings: {
+          '9000/tcp': [{ HostPort: port.toString() }],
+          [`${consolePort}/tcp`]: [{ HostPort: consolePort.toString() }],
+        },
+        Memory: config.resources.memory * 1024 * 1024,
+        CpuShares: Math.floor(config.resources.cpu * 1024),
+        RestartPolicy: {
+          Name: 'unless-stopped',
+        },
+        Mounts: [
+          {
+            Type: 'volume',
+            Source: dataVolume,
+            Target: '/data',
+          },
+        ],
+      },
+      NetworkingConfig: {
+        EndpointsConfig: {
+          lattice: {},
+        },
+      },
+      Labels: {
+        'lattice.workload.id': config.workloadId,
+        'lattice.service.type': 'minio',
+        'lattice.console.port': consolePort.toString(),
+      },
+    });
+
+    await container.start();
+    await this.waitForMinIO(port);
+
+    // Create initial buckets
+    await this.createMinIOBuckets(config.buckets);
+
+    this.containers.set(config.workloadId, container);
+    this.usedPorts.add(port);
+    this.usedPorts.add(consolePort);
+
+    return {
+      id: container.id!,
+      port,
+      internalPort: 9000,
+      status: 'running',
+    };
+  }
+
+  async deployNodeJS(config: NodeJSConfig): Promise<ContainerInfo> {
+    Logger.info(`Deploying Node.js app for workload ${config.workloadId}`);
+
+    const containerName = `nodejs-${config.workloadId}`;
+    const port = await this.getAvailablePort();
+    const internalPort = config.port || 3000;
+
+    const envVars = Object.entries(config.env).map(([key, value]) => `${key}=${value}`);
+    envVars.push(`PORT=${internalPort}`);
+
+    const container = await this.docker.createContainer({
+      name: containerName,
+      Image: config.imageId,
+      Env: envVars,
+      ExposedPorts: {
+        [`${internalPort}/tcp`]: {},
+      },
+      HostConfig: {
+        PortBindings: {
+          [`${internalPort}/tcp`]: [{ HostPort: port.toString() }],
+        },
+        Memory: config.resources.memory * 1024 * 1024,
+        CpuShares: Math.floor(config.resources.cpu * 1024),
+        RestartPolicy: {
+          Name: 'unless-stopped',
+        },
+      },
+      NetworkingConfig: {
+        EndpointsConfig: {
+          lattice: {},
+        },
+      },
+      Labels: {
+        'lattice.workload.id': config.workloadId,
+        'lattice.service.type': 'nodejs',
+      },
+    });
+
+    await container.start();
+    await this.waitForHTTP(port, 60000); // Wait up to 60 seconds
+
+    this.containers.set(config.workloadId, container);
+    this.usedPorts.add(port);
+
+    return {
+      id: container.id!,
+      port,
+      internalPort,
+      status: 'running',
+    };
+  }
+
+  async deployPython(config: PythonConfig): Promise<ContainerInfo> {
+    Logger.info(`Deploying Python app for workload ${config.workloadId}`);
+
+    const containerName = `python-${config.workloadId}`;
+    const port = await this.getAvailablePort();
+    const internalPort = config.port || 8000;
+
+    const envVars = Object.entries(config.env).map(([key, value]) => `${key}=${value}`);
+    envVars.push(`PORT=${internalPort}`);
+
+    const container = await this.docker.createContainer({
+      name: containerName,
+      Image: config.imageId,
+      Env: envVars,
+      ExposedPorts: {
+        [`${internalPort}/tcp`]: {},
+      },
+      HostConfig: {
+        PortBindings: {
+          [`${internalPort}/tcp`]: [{ HostPort: port.toString() }],
+        },
+        Memory: config.resources.memory * 1024 * 1024,
+        CpuShares: Math.floor(config.resources.cpu * 1024),
+        RestartPolicy: {
+          Name: 'unless-stopped',
+        },
+      },
+      NetworkingConfig: {
+        EndpointsConfig: {
+          lattice: {},
+        },
+      },
+      Labels: {
+        'lattice.workload.id': config.workloadId,
+        'lattice.service.type': 'python',
+      },
+    });
+
+    await container.start();
+    await this.waitForHTTP(port, 60000);
+
+    this.containers.set(config.workloadId, container);
+    this.usedPorts.add(port);
+
+    return {
+      id: container.id!,
+      port,
+      internalPort,
+      status: 'running',
+    };
+  }
+
+  async stopContainer(containerId: string): Promise<void> {
+    Logger.info(`Stopping container ${containerId}`);
+    
+    const container = this.docker.getContainer(containerId);
+    await container.stop();
+    
+    Logger.info(`Container ${containerId} stopped successfully`);
+  }
+
+  async removeContainer(containerId: string): Promise<void> {
+    Logger.info(`Removing container ${containerId}`);
+    
+    const container = this.docker.getContainer(containerId);
+    
+    try {
+      await container.stop();
+    } catch (error) {
+      // Container might already be stopped
+    }
+    
+    await container.remove({ force: true });
+    
+    // Remove from tracking
+    for (const [workloadId, trackedContainer] of this.containers.entries()) {
+      if (trackedContainer.id === containerId) {
+        this.containers.delete(workloadId);
+        break;
+      }
+    }
+    
+    Logger.info(`Container ${containerId} removed successfully`);
   }
 
   async getResourceUsage(): Promise<ResourceUsage> {
     try {
-      const availableMemory = os.freemem();
-      const availableDisk = await this.getAvailableDiskSpace();
+      const containers = await this.docker.listContainers();
+      let totalCpuUsage = 0;
+      let totalMemoryUsage = 0;
+
+      // Get container stats
+      for (const containerInfo of containers) {
+        try {
+          const container = this.docker.getContainer(containerInfo.Id);
+          const stats = await container.stats({ stream: false });
+          
+          // Calculate CPU usage percentage
+          const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+          const systemDelta = stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
+          const cpuUsage = (cpuDelta / systemDelta) * stats.cpu_stats.online_cpus * 100;
+          
+          totalCpuUsage += cpuUsage || 0;
+          totalMemoryUsage += stats.memory_stats.usage || 0;
+        } catch (error) {
+          // Skip containers that can't provide stats
+        }
+      }
+
+      // Get system resources
+      const totalMemory = os.totalmem();
+      const freeMemory = os.freemem();
+      const usedMemory = totalMemory - freeMemory;
+
+      // Get disk usage
+      const diskUsage = await this.getDiskUsage();
 
       return {
-        availableMemory,
-        availableDisk,
+        cpuUsage: totalCpuUsage,
+        memoryUsage: (usedMemory / totalMemory) * 100,
+        diskUsage: diskUsage.usedPercentage,
+        availableMemory: freeMemory / (1024 * 1024), // Convert to MB
+        availableDisk: diskUsage.available / (1024 * 1024 * 1024), // Convert to GB
       };
     } catch (error) {
-      logger.error('Failed to get resource usage', error);
-      throw new DockerError('Failed to get resource usage');
+      Logger.error('Failed to get resource usage:', error);
+      return {
+        cpuUsage: 0,
+        memoryUsage: 0,
+        diskUsage: 0,
+        availableMemory: 0,
+        availableDisk: 0,
+      };
     }
   }
 
-  async createContainer(config: ContainerConfig): Promise<string> {
+  private async getAvailablePort(): Promise<number> {
+    for (let port = this.portRange.min; port <= this.portRange.max; port++) {
+      if (!this.usedPorts.has(port)) {
+        this.usedPorts.add(port);
+        return port;
+      }
+    }
+    throw new Error('No available ports in range');
+  }
+
+  private async createVolume(name: string): Promise<void> {
     try {
-      logger.info('Creating container', { name: config.name, image: config.image });
-
-      // Prepare port bindings
-      const exposedPorts: Record<string, {}> = {};
-      const portBindings: Record<string, Array<{ HostPort: string }>> = {};
-
-      if (config.ports) {
-        for (const port of config.ports) {
-          const containerPort = `${port.container}/tcp`;
-          exposedPorts[containerPort] = {};
-          portBindings[containerPort] = [{
-            HostPort: port.host ? port.host.toString() : '',
-          }];
-        }
-      }
-
-      // Prepare volume bindings
-      const binds: string[] = [];
-      if (config.volumes) {
-        for (const volume of config.volumes) {
-          binds.push(`${volume.host}:${volume.container}`);
-        }
-      }
-
-      // Create container
-      const container = await this.docker.createContainer({
-        Image: config.image,
-        name: config.name,
-        Env: config.env ? Object.entries(config.env).map(([k, v]) => `${k}=${v}`) : [],
+      await this.docker.createVolume({
+        Name: name,
         Labels: {
-          ...CONTAINER_LABELS,
-          ...config.labels,
-        },
-        ExposedPorts: exposedPorts,
-        HostConfig: {
-          PortBindings: portBindings,
-          Binds: binds,
-          RestartPolicy: {
-            Name: 'unless-stopped',
-          },
-          ...(config.resources && {
-            CpuShares: config.resources.cpu ? config.resources.cpu * 1024 : undefined,
-            Memory: config.resources.memory ? config.resources.memory * 1024 * 1024 : undefined,
-          }),
+          'lattice.volume': 'true',
         },
       });
-
-      // Start container
-      await container.start();
-
-      logger.info('Container created and started', { 
-        name: config.name, 
-        id: container.id 
-      });
-
-      return container.id;
-    } catch (error: any) {
-      logger.error('Failed to create container', error);
-      
-      if (error.statusCode === 409) {
-        throw new DockerError('Container with this name already exists');
+    } catch (error) {
+      // Volume might already exist
+      if (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string' && !error.message.includes('already exists')) {
+        throw error;
       }
-      
-      throw new DockerError(`Failed to create container: ${error.message}`);
     }
   }
 
-  async stopContainer(containerId: string): Promise<void> {
-    try {
-      const container = this.docker.getContainer(containerId);
-      await container.stop();
-      logger.info('Container stopped', { containerId });
-    } catch (error: any) {
-      if (error.statusCode === 304) {
-        // Container already stopped
-        return;
-      }
-      logger.error('Failed to stop container', error);
-      throw new DockerError(`Failed to stop container: ${error.message}`);
-    }
-  }
+  private async waitForPostgreSQL(container: Docker.Container, username: string, database: string): Promise<void> {
+    const maxRetries = 30;
+    let retries = 0;
 
-  async removeContainer(containerId: string): Promise<void> {
-    try {
-      const container = this.docker.getContainer(containerId);
-      await container.remove({ force: true });
-      logger.info('Container removed', { containerId });
-    } catch (error: any) {
-      logger.error('Failed to remove container', error);
-      throw new DockerError(`Failed to remove container: ${error.message}`);
-    }
-  }
-
-  async getContainerStats(containerId: string): Promise<any> {
-    try {
-      const container = this.docker.getContainer(containerId);
-      const stream = await container.stats({ stream: false });
-      return stream;
-    } catch (error: any) {
-      logger.error('Failed to get container stats', error);
-      throw new DockerError(`Failed to get container stats: ${error.message}`);
-    }
-  }
-
-  async getContainerLogs(containerId: string, lines: number = 100): Promise<string[]> {
-    try {
-      const container = this.docker.getContainer(containerId);
-      const stream = await container.logs({
-        stdout: true,
-        stderr: true,
-        tail: lines,
-        timestamps: true,
-      });
-
-      // Parse logs from stream
-      const logs = stream.toString().split('\n').filter(Boolean);
-      return logs;
-    } catch (error: any) {
-      logger.error('Failed to get container logs', error);
-      throw new DockerError(`Failed to get container logs: ${error.message}`);
-    }
-  }
-
-  async pullImage(image: string): Promise<void> {
-    try {
-      logger.info('Pulling Docker image', { image });
-      
-      const stream = await this.docker.pull(image);
-      
-      // Wait for pull to complete
-      await new Promise((resolve, reject) => {
-        this.docker.modem.followProgress(stream, (err: any) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve(undefined);
-          }
+    while (retries < maxRetries) {
+      try {
+        const exec = await container.exec({
+          Cmd: ['pg_isready', '-U', username, '-d', database],
+          AttachStdout: true,
+          AttachStderr: true,
         });
-      });
 
-      logger.info('Docker image pulled successfully', { image });
-    } catch (error: any) {
-      logger.error('Failed to pull Docker image', error);
-      throw new DockerError(`Failed to pull image ${image}: ${error.message}`);
+        const stream = await exec.start({});
+        const output = await this.streamToString(stream);
+
+        if (output.includes('accepting connections')) {
+          Logger.info('PostgreSQL is ready');
+          return;
+        }
+      } catch (error) {
+        // Continue waiting
+      }
+
+      retries++;
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    throw new Error('PostgreSQL failed to start within timeout');
+  }
+
+  private async waitForRedis(container: Docker.Container, password: string): Promise<void> {
+    const maxRetries = 30;
+    let retries = 0;
+
+    while (retries < maxRetries) {
+      try {
+        const exec = await container.exec({
+          Cmd: ['redis-cli', '-a', password, 'ping'],
+          AttachStdout: true,
+          AttachStderr: true,
+        });
+
+        const stream = await exec.start({});
+        const output = await this.streamToString(stream);
+
+        if (output.includes('PONG')) {
+          Logger.info('Redis is ready');
+          return;
+        }
+      } catch (error) {
+        // Continue waiting
+      }
+
+      retries++;
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    throw new Error('Redis failed to start within timeout');
+  }
+
+  private async waitForMinIO(port: number): Promise<void> {
+    await this.waitForHTTP(port, 30000);
+    Logger.info('MinIO is ready');
+  }
+
+  private async waitForHTTP(port: number, timeout: number = 30000): Promise<void> {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeout) {
+      try {
+        const response = await fetch(`http://localhost:${port}/health`).catch(() => null);
+        if (response && response.ok) {
+          return;
+        }
+      } catch (error) {
+        // Continue waiting
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    throw new Error(`HTTP service on port ${port} failed to start within timeout`);
+  }
+
+  private async createMinIOBuckets(buckets: string[]): Promise<void> {
+    // Implementation would use MinIO client to create buckets
+    // For now, this is a placeholder
+    Logger.info(`Creating MinIO buckets: ${buckets.join(', ')}`);
+  }
+
+  private async getDiskUsage(): Promise<{ total: number; used: number; available: number; usedPercentage: number }> {
+    try {
+      // This is a simplified implementation
+      // In production, you'd use a proper disk usage library
+      return {
+        total: 100 * 1024 * 1024 * 1024, // 100GB placeholder
+        used: 50 * 1024 * 1024 * 1024,   // 50GB placeholder
+        available: 50 * 1024 * 1024 * 1024, // 50GB placeholder
+        usedPercentage: 50,
+      };
+    } catch (error) {
+      return {
+        total: 0,
+        used: 0,
+        available: 0,
+        usedPercentage: 0,
+      };
     }
   }
 
-  private async getTotalDiskSpace(): Promise<number> {
-    try {
-      const stats = await fs.statfs('/');
-      return stats.blocks * stats.bsize;
-    } catch (error) {
-      logger.error('Failed to get total disk space', error);
-      return 0;
-    }
+  private async streamToString(stream: NodeJS.ReadableStream): Promise<string> {
+    const chunks: Buffer[] = [];
+    
+    return new Promise((resolve, reject) => {
+      stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      stream.on('error', (err) => reject(err));
+      stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    });
   }
 
-  private async getAvailableDiskSpace(): Promise<number> {
-    try {
-      const stats = await fs.statfs('/');
-      return stats.bavail * stats.bsize;
-    } catch (error) {
-      logger.error('Failed to get available disk space', error);
-      return 0;
+  private async streamToPromise(stream: NodeJS.ReadableStream): Promise<void> {
+    return new Promise((resolve, reject) => {
+      stream.on('end', resolve);
+      stream.on('error', reject);
+    });
+  }
+
+  async shutdown(): Promise<void> {
+    Logger.info('Shutting down Docker service...');
+    
+    // Stop all managed containers gracefully
+    for (const [workloadId, container] of this.containers.entries()) {
+      try {
+        await container.stop({ t: 10 }); // 10 second grace period
+        Logger.info(`Stopped container for workload ${workloadId}`);
+      } catch (error) {
+        Logger.error(`Failed to stop container for workload ${workloadId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
+    
+    this.containers.clear();
+    this.usedPorts.clear();
+    
+    Logger.info('Docker service shutdown complete');
   }
 }

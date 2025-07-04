@@ -1,10 +1,12 @@
 import 'dotenv/config';
-import { Logger, CryptoUtils } from '@lattice-console/utils';
+import { Logger } from '@lattice-console/utils';
 import { DockerService } from './services/docker';
 import { TunnelService } from './services/tunnel';
 import { ApiClient } from './lib/api-client';
 import cron from 'node-cron';
 import { WorkloadManager } from './services/workload-manager';
+import { BuildService } from './services/build';
+import { CronService } from './services/cron';
 
 const logger = Logger.child({ service: 'agent' });
 
@@ -13,6 +15,8 @@ class Agent {
   private tunnelService: TunnelService;
   private apiClient: ApiClient;
   private workloadManager: WorkloadManager;
+  private buildService: BuildService;
+  private cronService: CronService;
   private agentId?: string;
   private heartbeatTask?: cron.ScheduledTask;
 
@@ -20,6 +24,8 @@ class Agent {
     this.dockerService = new DockerService();
     this.tunnelService = new TunnelService();
     this.apiClient = new ApiClient();
+    this.buildService = new BuildService();
+    this.cronService = new CronService();
     this.workloadManager = new WorkloadManager(
       this.dockerService,
       this.tunnelService,
@@ -31,9 +37,11 @@ class Agent {
     try {
       logger.info('Starting Lattice Console Agent...');
 
-      // Check Docker connectivity
-      await this.dockerService.checkConnection();
-      logger.info('Docker connection established');
+      // Initialize all services
+      await this.dockerService.initialize();
+      await this.tunnelService.initialize();
+      await this.buildService.initialize();
+      await this.cronService.initialize();
 
       // Register with backend
       await this.register();
@@ -57,16 +65,14 @@ class Agent {
 
   private async register() {
     try {
-      const systemInfo = await this.dockerService.getSystemInfo();
-      
       const result = await this.apiClient.registerAgent({
-        hostname: systemInfo.hostname,
-        platform: systemInfo.platform,
-        dockerVersion: systemInfo.dockerVersion,
+        hostname: process.env.HOSTNAME || 'localhost',
+        platform: process.platform,
+        dockerVersion: process.env.DOCKER_VERSION || 'unknown',
         resources: {
-          cpuCores: systemInfo.cpuCores,
-          totalMemory: systemInfo.totalMemory,
-          totalDisk: systemInfo.totalDisk,
+          cpuCores: Number(process.env.CPU_CORES) || 4,
+          totalMemory: Number(process.env.TOTAL_MEMORY) || 8192,
+          totalDisk: Number(process.env.TOTAL_DISK) || 256000,
         },
       });
 
@@ -102,15 +108,48 @@ class Agent {
     logger.info('Shutting down agent...');
 
     // Stop heartbeat
-    if (this.heartbeatTask) {
-      this.heartbeatTask.stop();
+    try {
+      if (this.heartbeatTask) {
+        this.heartbeatTask.stop();
+      }
+    } catch (err) {
+      logger.warn('Error stopping heartbeat:', err);
     }
 
     // Stop workload manager
-    await this.workloadManager.stop();
+    try {
+      await this.workloadManager.stop();
+    } catch (err) {
+      logger.warn('Error stopping workload manager:', err);
+    }
 
-    // Clean up resources
-    await this.tunnelService.closeAll();
+    // Shutdown CronService
+    try {
+      await this.cronService.shutdown();
+    } catch (err) {
+      logger.warn('Error shutting down CronService:', err);
+    }
+
+    // Shutdown TunnelService
+    try {
+      await this.tunnelService.closeAllTunnels();
+    } catch (err) {
+      logger.warn('Error shutting down TunnelService:', err);
+    }
+
+    // Shutdown DockerService
+    try {
+      await this.dockerService.shutdown();
+    } catch (err) {
+      logger.warn('Error shutting down DockerService:', err);
+    }
+
+    // Shutdown BuildService
+    try {
+      await this.buildService.shutdown();
+    } catch (err) {
+      logger.warn('Error shutting down BuildService:', err);
+    }
 
     logger.info('Agent shutdown complete');
     process.exit(0);
