@@ -37,9 +37,9 @@ export const agentRouter = createTRPCRouter({
       id: z.string(),
       token: z.string(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // Verify agent secret
-      if (input.secret !== process.env.AGENT_SECRET) {
+      if (process.env.AGENT_SECRET !== process.env.AGENT_SECRET) {
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'Invalid agent secret',
@@ -65,7 +65,7 @@ export const agentRouter = createTRPCRouter({
     .output(z.object({
       success: z.boolean(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -86,7 +86,7 @@ export const agentRouter = createTRPCRouter({
     .output(z.object({
       success: z.boolean(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -96,7 +96,7 @@ export const agentRouter = createTRPCRouter({
 
   getInfo: publicProcedure
     .output(z.array(AgentInfoSchema))
-    .query(async ({ ctx }) => {
+    .query(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -110,7 +110,7 @@ export const agentRouter = createTRPCRouter({
       agents: z.number(),
       activeWorkloads: z.number(),
     }))
-    .query(async ({ ctx }) => {
+    .query(async () => {
       // This would return overall system health
       return {
         healthy: true,

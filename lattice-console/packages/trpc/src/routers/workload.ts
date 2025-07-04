@@ -36,7 +36,7 @@ export const workloadRouter = createTRPCRouter({
   deploy: protectedProcedure
     .input(WorkloadCreateSchema)
     .output(WorkloadSchema)
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -55,7 +55,7 @@ export const workloadRouter = createTRPCRouter({
       page: z.number(),
       pageSize: z.number(),
     }))
-    .query(async ({ ctx, input }) => {
+    .query(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -68,7 +68,7 @@ export const workloadRouter = createTRPCRouter({
       id: IdSchema,
     }))
     .output(WorkloadSchema)
-    .query(async ({ ctx, input }) => {
+    .query(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -81,7 +81,7 @@ export const workloadRouter = createTRPCRouter({
       id: IdSchema,
     }))
     .output(WorkloadSchema)
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -94,7 +94,7 @@ export const workloadRouter = createTRPCRouter({
       id: IdSchema,
     }))
     .output(WorkloadSchema)
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -109,7 +109,7 @@ export const workloadRouter = createTRPCRouter({
     .output(z.object({
       success: z.boolean(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -130,7 +130,7 @@ export const workloadRouter = createTRPCRouter({
         level: z.enum(['info', 'warn', 'error']).optional(),
       })),
     }))
-    .query(async ({ ctx, input }) => {
+    .query(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',
@@ -151,7 +151,7 @@ export const workloadRouter = createTRPCRouter({
         tx: z.number(),
       }),
     }))
-    .query(async ({ ctx, input }) => {
+    .query(async () => {
       // This would be implemented in the backend
       throw new TRPCError({
         code: 'NOT_IMPLEMENTED',

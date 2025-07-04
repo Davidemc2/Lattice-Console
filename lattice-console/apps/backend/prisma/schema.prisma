@@ -88,6 +88,7 @@ model Agent {
   updatedAt     DateTime      @updatedAt
   workloads     Workload[]
   heartbeats    AgentHeartbeat[]
+  workloadLogs  WorkloadLog[]
   
   @@index([status])
   @@index([token])
@@ -105,14 +106,18 @@ model AgentHeartbeat {
 }
 
 model WorkloadLog {
-  id          String    @id @default(cuid())
-  workloadId  String
-  message     String
-  level       LogLevel?
-  timestamp   DateTime  @default(now())
-  workload    Workload  @relation(fields: [workloadId], references: [id], onDelete: Cascade)
-  
+  id         String   @id @default(cuid())
+  workloadId String   @map("workload_id")
+  agentId    String   @map("agent_id")
+  timestamp  DateTime @default(now())
+  level      String
+  message    String
+
+  workload   Workload @relation(fields: [workloadId], references: [id], onDelete: Cascade)
+  agent      Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
   @@index([workloadId, timestamp])
+  @@map("workload_logs")
 }
 
 model WorkloadStat {
