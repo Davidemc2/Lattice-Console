@@ -1,0 +1,56 @@
+# Page snapshot
+
+```yaml
+- main:
+  - img "Luxury Real Estate"
+  - navigation:
+    - heading "RITA" [level=1]
+    - link "Home":
+      - /url: /
+    - link "Properties":
+      - /url: /properties
+    - link "Dashboard":
+      - /url: /dashboard
+    - button "Sign In"
+    - button "Sign Up"
+  - heading "Search. Decide. Live." [level=1]
+  - paragraph: 13+ premium properties for sale & rent.
+  - text: Location
+  - textbox "City, Neighborhood"
+  - text: Status
+  - combobox:
+    - option "Any" [selected]
+    - option "For Sale"
+    - option "For Rent"
+  - text: Type
+  - combobox:
+    - option "Any" [selected]
+    - option "House"
+    - option "Apartment"
+    - option "Townhouse"
+    - option "Villa"
+  - button "Search":
+    - img
+    - text: Search
+  - heading "Featured Properties" [level=2]
+  - paragraph: Handpicked selection of premier properties
+  - heading "How RITA Works" [level=2]
+  - paragraph: Our platform streamlines the entire property transaction process from search to settlement
+  - img
+  - heading "Discover" [level=3]
+  - paragraph: Browse verified properties with trust scores and detailed information
+  - img
+  - heading "Make an Offer" [level=3]
+  - paragraph: Use our Smart Offer system to create customized offers with legal clauses
+  - img
+  - heading "Secure Approval" [level=3]
+  - paragraph: All parties review and approve the offer through our secure platform
+  - img
+  - heading "Complete" [level=3]
+  - paragraph: Finalize the sale with integrated legal and financial services
+  - heading "Ready to find your dream property?" [level=2]
+  - paragraph: Let us help you find the perfect place to call home.
+  - button "Browse Properties"
+  - button "Learn More"
+- alert
+```

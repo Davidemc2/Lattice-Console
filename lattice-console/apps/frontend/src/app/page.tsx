@@ -83,7 +83,7 @@ export default function DashboardPage() {
         )}
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-semibold">Workloads</h2>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700" onClick={() => setShowDeploy(true)}>
+          <button data-testid="deploy-workload-btn" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700" onClick={() => setShowDeploy(true)}>
             + Deploy Workload
           </button>
         </div>
@@ -99,14 +99,14 @@ export default function DashboardPage() {
           </thead>
           <tbody>
             {workloads.map(w => (
-              <tr key={w.id} className="border-t">
-                <td className="p-2 font-medium">{w.name}</td>
-                <td className="p-2">{w.type}</td>
-                <td className="p-2">
+              <tr key={w.id} className="border-t" data-testid="workload-row">
+                <td className="p-2 font-medium" data-testid="workload-name">{w.name}</td>
+                <td className="p-2" data-testid="workload-type">{w.type}</td>
+                <td className="p-2" data-testid="workload-status">
                   <span className={w.status === 'RUNNING' ? 'text-green-600' : 'text-gray-500'}>{w.status.toLowerCase()}</span>
                 </td>
-                <td className="p-2">{w.publicUrl || '-'}</td>
-                <td className="p-2">
+                <td className="p-2" data-testid="workload-url">{w.publicUrl || '-'}</td>
+                <td className="p-2" data-testid="workload-credentials">
                   {w.type === 'POSTGRES' && w.credentials && (
                     <span>User: {w.credentials.user}<br />Pass: {w.credentials.password}</span>
                   )}
@@ -119,22 +119,22 @@ export default function DashboardPage() {
           </tbody>
         </table>
         {showDeploy && (
-          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50" data-testid="deploy-modal">
             <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-              <h3 className="text-xl font-bold mb-4">Deploy New Workload</h3>
+              <h3 className="text-xl font-bold mb-4" data-testid="deploy-modal-title">Deploy New Workload</h3>
               <form onSubmit={handleDeploy}>
                 <label className="block mb-2 font-medium">Type</label>
-                <select className="w-full mb-4 p-2 border rounded" value={deployType} onChange={e => setDeployType(e.target.value)}>
+                <select data-testid="deploy-type" className="w-full mb-4 p-2 border rounded" value={deployType} onChange={e => setDeployType(e.target.value)}>
                   <option value="POSTGRES">Postgres</option>
                   <option value="MINIO">MinIO S3</option>
                 </select>
                 <label className="block mb-2 font-medium">Name</label>
-                <input className="w-full mb-4 p-2 border rounded" value={deployName} onChange={e => setDeployName(e.target.value)} required />
-                {deployError && <div className="text-red-600 mb-2">{deployError}</div>}
-                {deploySuccess && <div className="text-green-600 mb-2">Workload deployed!</div>}
+                <input data-testid="deploy-name" className="w-full mb-4 p-2 border rounded" value={deployName} onChange={e => setDeployName(e.target.value)} required />
+                {deployError && <div className="text-red-600 mb-2" data-testid="deploy-error">{deployError}</div>}
+                {deploySuccess && <div className="text-green-600 mb-2" data-testid="deploy-success">Workload deployed!</div>}
                 <div className="flex justify-end">
-                  <button type="button" className="px-4 py-2 bg-gray-300 rounded mr-2" onClick={() => setShowDeploy(false)}>Cancel</button>
-                  <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded" disabled={deployLoading}>{deployLoading ? 'Deploying...' : 'Deploy'}</button>
+                  <button type="button" data-testid="deploy-cancel" className="px-4 py-2 bg-gray-300 rounded mr-2" onClick={() => setShowDeploy(false)}>Cancel</button>
+                  <button type="submit" data-testid="deploy-submit" className="px-4 py-2 bg-blue-600 text-white rounded" disabled={deployLoading}>{deployLoading ? 'Deploying...' : 'Deploy'}</button>
                 </div>
               </form>
             </div>
